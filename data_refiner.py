@@ -1,6 +1,7 @@
+import csv
 import json
+from datetime import date, datetime
 from pathlib import Path
-from datetime import datetime, date
 
 # Constants
 DEPARTMENTS_AND_BINS = {
@@ -21,7 +22,7 @@ CATEGORIES = ("alpha", "beta", "gamma", "delta")
 START_DATE = date(2025, 10, 1)
 END_DATE = date(2025, 12, 31)
 NORA_END_DATE = date(2025, 11, 15)
-MDR_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
+MDR_CSV_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
 TXT_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -72,7 +73,40 @@ def verify_duplicates(raw_data, session_id, timestamp):
 
 
 def read_and_process_csv(file, raw_data):
-    pass
+    with open(file, "rt") as csv_file:
+        csv_reader = list(csv.DictReader(csv_file))
+
+        session_id = csv_reader[0].get("session_id")
+        department = csv_reader[0].get("department")
+        processor = csv_reader[0].get("processor")
+        raw_timestamp = csv_reader[0].get("timestamp")
+        timestamp = convert_raw_timestamp(raw_timestamp, MDR_CSV_TIMESTAMP_FORMAT)
+        if timestamp is None:
+            return
+        is_valid_basic = make_basic_validations(department, processor, timestamp)
+        if not is_valid_basic:
+            return
+
+        if session_id in raw_data:
+            has_to_replace = verify_duplicates(raw_data, session_id, timestamp)
+            if not has_to_replace:
+                return
+
+        raw_data[session_id] = {"timestamp": timestamp, "value": 0}
+
+        for entry in csv_reader:
+            bin_code = entry.get("bin")
+            try:
+                value = float(entry.get("output_metric", 0))
+            except ValueError:
+                value = 0
+            category = entry.get("classification")
+            is_valid_entry = make_entry_verifications(
+                department, bin_code, value, category
+            )
+            if not is_valid_entry:
+                continue
+            raw_data[session_id]["value"] += value
 
 
 def read_and_process_txt(file, raw_data):
@@ -109,7 +143,9 @@ def read_and_process_txt(file, raw_data):
             except ValueError:
                 value = 0
             category = split_entry[3].split(":")[-1].strip()
-            is_valid_entry = make_entry_verifications(department, bin_code, value, category)
+            is_valid_entry = make_entry_verifications(
+                department, bin_code, value, category
+            )
             if not is_valid_entry:
                 continue
             raw_data[session_id]["value"] += value
@@ -126,7 +162,7 @@ def read_and_process_mdr(file, raw_data):
             department = content.get("department")
             processor = content.get("processor")
             raw_timestamp = content.get("timestamp")
-            timestamp = convert_raw_timestamp(raw_timestamp, MDR_TIMESTAMP_FORMAT)
+            timestamp = convert_raw_timestamp(raw_timestamp, MDR_CSV_TIMESTAMP_FORMAT)
             if timestamp is None:
                 return
             is_valid_basic = make_basic_validations(department, processor, timestamp)
@@ -169,8 +205,8 @@ def process_data_refinement():
             file_path = f"{root}/{file}"
             if file.endswith(".mdr"):
                 read_and_process_mdr(file_path, raw_data)
-            # elif file.endswith(".csv"):
-            #     read_and_process_csv(file_path, raw_data)
+            elif file.endswith(".csv"):
+                read_and_process_csv(file_path, raw_data)
             elif file.endswith(".txt"):
                 read_and_process_txt(file_path, raw_data)
             else:
