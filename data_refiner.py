@@ -200,7 +200,7 @@ def process_data_refinement():
     """
 
     raw_data = {}
-    for root, dirs, files in Path("./sessions").walk():
+    for root, _, files in Path("./sessions").walk():
         for file in files:
             file_path = f"{root}/{file}"
             if file.endswith(".mdr"):
