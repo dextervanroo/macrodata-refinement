@@ -27,6 +27,9 @@ TXT_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def convert_raw_timestamp(value, fmt):
+    """
+    Convert a string to a datetime.date instance
+    """
     try:
         converted_value = datetime.strptime(value, fmt).date()
     except (ValueError, TypeError):
@@ -72,7 +75,7 @@ def verify_duplicates(raw_data, session_id, timestamp):
     return has_to_replace
 
 
-def read_and_process_csv(file, raw_data):
+def read_and_process_csv(file, raw_data, stats):
     with open(file, "rt") as csv_file:
         csv_reader = list(csv.DictReader(csv_file))
 
@@ -82,15 +85,19 @@ def read_and_process_csv(file, raw_data):
         raw_timestamp = csv_reader[0].get("timestamp")
         timestamp = convert_raw_timestamp(raw_timestamp, MDR_CSV_TIMESTAMP_FORMAT)
         if timestamp is None:
+            stats["invalid_sessions"] += 1
             return
         is_valid_basic = make_basic_validations(department, processor, timestamp)
         if not is_valid_basic:
+            stats["invalid_sessions"] += 1
             return
 
         if session_id in raw_data:
             has_to_replace = verify_duplicates(raw_data, session_id, timestamp)
             if not has_to_replace:
+                stats["replaced_sessions"] += 1
                 return
+            stats["replaced_sessions"] += 1
 
         raw_data[session_id] = {"timestamp": timestamp, "value": 0}
 
@@ -105,11 +112,12 @@ def read_and_process_csv(file, raw_data):
                 department, bin_code, value, category
             )
             if not is_valid_entry:
+                stats["invalid_entries"] += 1
                 continue
             raw_data[session_id]["value"] += value
 
 
-def read_and_process_txt(file, raw_data):
+def read_and_process_txt(file, raw_data, stats):
     with open(file, "rt") as txt_file:
         split_info = txt_file.read().splitlines()
 
@@ -119,15 +127,19 @@ def read_and_process_txt(file, raw_data):
         raw_timestamp = split_info[3].split(": ")[-1].strip()
         timestamp = convert_raw_timestamp(raw_timestamp, TXT_TIMESTAMP_FORMAT)
         if timestamp is None:
+            stats["invalid_sessions"] += 1
             return
         is_valid_basic = make_basic_validations(department, processor, timestamp)
 
         if not is_valid_basic:
+            stats["invalid_sessions"] += 1
             return
         if session_id in raw_data:
             has_to_replace = verify_duplicates(raw_data, session_id, timestamp)
             if not has_to_replace:
+                stats["replaced_sessions"] += 1
                 return
+            stats["replaced_sessions"] += 1
 
         raw_data[session_id] = {"timestamp": timestamp, "value": 0}
 
@@ -147,11 +159,12 @@ def read_and_process_txt(file, raw_data):
                 department, bin_code, value, category
             )
             if not is_valid_entry:
+                stats["invalid_entries"] += 1
                 continue
             raw_data[session_id]["value"] += value
 
 
-def read_and_process_mdr(file, raw_data):
+def read_and_process_mdr(file, raw_data, stats):
     with open(file, "rt") as json_file:
         try:
             content = json.load(json_file)
@@ -164,16 +177,20 @@ def read_and_process_mdr(file, raw_data):
             raw_timestamp = content.get("timestamp")
             timestamp = convert_raw_timestamp(raw_timestamp, MDR_CSV_TIMESTAMP_FORMAT)
             if timestamp is None:
+                stats["invalid_sessions"] += 1
                 return
             is_valid_basic = make_basic_validations(department, processor, timestamp)
 
             if not is_valid_basic:
+                stats["invalid_sessions"] += 1
                 return
 
             if session_id in raw_data:
                 has_to_replace = verify_duplicates(raw_data, session_id, timestamp)
                 if not has_to_replace:
+                    stats["replaced_sessions"] += 1
                     return
+                stats["replaced_sessions"] += 1
 
             raw_data[session_id] = {"timestamp": timestamp, "value": 0}
 
@@ -190,6 +207,7 @@ def read_and_process_mdr(file, raw_data):
                     department, bin_code, value, category
                 )
                 if not is_valid_entry:
+                    stats["invalid_entries"] += 1
                     continue
                 raw_data[session_id]["value"] += value
 
@@ -200,18 +218,19 @@ def process_data_refinement():
     """
 
     raw_data = {}
+    stats = {"invalid_sessions": 0, "invalid_entries": 0, "replaced_sessions": 0}
     for root, _, files in Path("./sessions").walk():
         for file in files:
             file_path = f"{root}/{file}"
             if file.endswith(".mdr"):
-                read_and_process_mdr(file_path, raw_data)
+                read_and_process_mdr(file_path, raw_data, stats)
             elif file.endswith(".csv"):
-                read_and_process_csv(file_path, raw_data)
+                read_and_process_csv(file_path, raw_data, stats)
             elif file.endswith(".txt"):
-                read_and_process_txt(file_path, raw_data)
+                read_and_process_txt(file_path, raw_data, stats)
             else:
                 continue
-    return raw_data
+    return raw_data, stats
 
 
 def sum_data_refinement(data):
@@ -219,6 +238,10 @@ def sum_data_refinement(data):
 
 
 if __name__ == "__main__":
-    refined_data = process_data_refinement()
+    refined_data, stats = process_data_refinement()
     sum_value = sum_data_refinement(refined_data)
-    print(sum_value)
+    print(f"Final sum: {sum_value}")
+    print("\n====================")
+    print("\nSome stats:")
+    for stat_name, stat_value in stats.items():
+        print(f"{stat_name}: {stat_value}")
