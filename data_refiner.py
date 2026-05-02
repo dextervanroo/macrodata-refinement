@@ -4,11 +4,11 @@ from datetime import datetime, date
 
 # Constants
 DEPARTMENTS_AND_BINS = {
-    "MDR": ["GR", "BL", "AX"],
-    "SA": ["SP", "BL"],
-    "WB": ["GR", "AX"],
+    "MDR": {"GR", "BL", "AX"},
+    "SA": {"SP", "BL"},
+    "WB": {"GR", "AX"},
 }
-AUTHORIZED_PROCESSORS = (
+AUTHORIZED_PROCESSORS = {
     "James.L",
     "Nora.K",
     "Arthur.B",
@@ -16,31 +16,18 @@ AUTHORIZED_PROCESSORS = (
     "Felix.G",
     "Dr.Voss",
     "Clara.M",
-)
+}
 CATEGORIES = ("alpha", "beta", "gamma", "delta")
 START_DATE = date(2025, 10, 1)
 END_DATE = date(2025, 12, 31)
 NORA_END_DATE = date(2025, 11, 15)
+MDR_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
+TXT_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
-def convert_raw_timestamp_mdr(value):
-    """
-    Convert string to a datetime.date value in .mdr files
-    """
+def convert_raw_timestamp(value, fmt):
     try:
-        converted_value = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S").date()
-    except (ValueError, TypeError):
-        return None
-    else:
-        return converted_value
-
-
-def convert_raw_timestamp_txt(value):
-    """
-    Convert string to a datetime.date value in .txt files
-    """
-    try:
-        converted_value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S").date()
+        converted_value = datetime.strptime(value, fmt).date()
     except (ValueError, TypeError):
         return None
     else:
@@ -61,11 +48,11 @@ def make_basic_validations(department, processor, timestamp):
     return all([correct_department, processor_authorized, correct_date, is_weekday])
 
 
-def make_entry_verifications(department, bin, value, category):
+def make_entry_verifications(department, bin_code, value, category):
     """
     Make second level validation (rules 3, 4, 5, 8, 9, 10)
     """
-    correct_bin = bin in DEPARTMENTS_AND_BINS.get(department, [])
+    correct_bin = bin_code in DEPARTMENTS_AND_BINS.get(department, set())
     valid_value = value > 0 and value < 1000
     valid_category = category in CATEGORIES
 
@@ -90,13 +77,13 @@ def read_and_process_csv(file, raw_data):
 
 def read_and_process_txt(file, raw_data):
     with open(file, "rt") as txt_file:
-        splitted_info = txt_file.read().splitlines()
+        split_info = txt_file.read().splitlines()
 
-        session_id = splitted_info[0].split(":")[-1].strip()
-        processor = splitted_info[1].split(":")[-1].strip()
-        department = splitted_info[2].split(":")[-1].strip()
-        raw_timestamp = splitted_info[3].split(": ")[-1].strip()
-        timestamp = convert_raw_timestamp_txt(raw_timestamp)
+        session_id = split_info[0].split(":")[-1].strip()
+        processor = split_info[1].split(":")[-1].strip()
+        department = split_info[2].split(":")[-1].strip()
+        raw_timestamp = split_info[3].split(": ")[-1].strip()
+        timestamp = convert_raw_timestamp(raw_timestamp, TXT_TIMESTAMP_FORMAT)
         if timestamp is None:
             return
         is_valid_basic = make_basic_validations(department, processor, timestamp)
@@ -110,19 +97,19 @@ def read_and_process_txt(file, raw_data):
 
         raw_data[session_id] = {"timestamp": timestamp, "value": 0}
 
-        entries = splitted_info[5:]
+        entries = split_info[5:]
 
         for entry in entries:
-            splitted_entry = entry.split("|")
-            if len(splitted_entry) < 4:
+            split_entry = entry.split("|")
+            if len(split_entry) < 4:
                 continue
-            bin = splitted_entry[1].split(":")[-1].strip()
+            bin_code = split_entry[1].split(":")[-1].strip()
             try:
-                value = float(splitted_entry[2].split(":")[-1].strip())
+                value = float(split_entry[2].split(":")[-1].strip())
             except ValueError:
                 value = 0
-            category = splitted_entry[3].split(":")[-1].strip()
-            is_valid_entry = make_entry_verifications(department, bin, value, category)
+            category = split_entry[3].split(":")[-1].strip()
+            is_valid_entry = make_entry_verifications(department, bin_code, value, category)
             if not is_valid_entry:
                 continue
             raw_data[session_id]["value"] += value
@@ -139,7 +126,7 @@ def read_and_process_mdr(file, raw_data):
             department = content.get("department")
             processor = content.get("processor")
             raw_timestamp = content.get("timestamp")
-            timestamp = convert_raw_timestamp_mdr(raw_timestamp)
+            timestamp = convert_raw_timestamp(raw_timestamp, MDR_TIMESTAMP_FORMAT)
             if timestamp is None:
                 return
             is_valid_basic = make_basic_validations(department, processor, timestamp)
@@ -157,14 +144,14 @@ def read_and_process_mdr(file, raw_data):
             entries = content.get("entries", [])
 
             for entry in entries:
-                bin = entry.get("bin")
+                bin_code = entry.get("bin")
                 try:
                     value = float(entry.get("value", 0))
                 except ValueError:
                     value = 0
                 category = entry.get("category")
                 is_valid_entry = make_entry_verifications(
-                    department, bin, value, category
+                    department, bin_code, value, category
                 )
                 if not is_valid_entry:
                     continue
