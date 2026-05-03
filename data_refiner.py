@@ -114,6 +114,7 @@ def read_and_process_csv(file, raw_data, stats):
             if not is_valid_entry:
                 stats["invalid_entries"] += 1
                 continue
+            stats["valid_entries"] += 1
             raw_data[session_id]["value"] += value
 
 
@@ -161,6 +162,7 @@ def read_and_process_txt(file, raw_data, stats):
             if not is_valid_entry:
                 stats["invalid_entries"] += 1
                 continue
+            stats["valid_entries"] += 1
             raw_data[session_id]["value"] += value
 
 
@@ -209,6 +211,7 @@ def read_and_process_mdr(file, raw_data, stats):
                 if not is_valid_entry:
                     stats["invalid_entries"] += 1
                     continue
+                stats["valid_entries"] += 1
                 raw_data[session_id]["value"] += value
 
 
@@ -218,7 +221,13 @@ def process_data_refinement():
     """
 
     raw_data = {}
-    stats = {"invalid_sessions": 0, "invalid_entries": 0, "replaced_sessions": 0}
+    stats = {
+        "valid_sessions": 0,
+        "valid_entries": 0,
+        "invalid_sessions": 0,
+        "invalid_entries": 0,
+        "replaced_sessions": 0,
+    }
     for root, _, files in Path("./sessions").walk():
         for file in files:
             file_path = f"{root}/{file}"
@@ -230,6 +239,7 @@ def process_data_refinement():
                 read_and_process_txt(file_path, raw_data, stats)
             else:
                 continue
+    stats["valid_sessions"] = len(raw_data)
     return raw_data, stats
 
 
