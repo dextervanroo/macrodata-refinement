@@ -1,3 +1,4 @@
+import argparse
 import csv
 import json
 from datetime import date, datetime
@@ -31,7 +32,7 @@ def convert_raw_timestamp(value, fmt):
     Convert a string to a datetime.date instance
     """
     try:
-        converted_value = datetime.strptime(value, fmt).date()
+        converted_value = datetime.strptime(value, fmt)
     except (ValueError, TypeError):
         return None
     else:
@@ -44,9 +45,10 @@ def make_basic_validations(department, processor, timestamp):
     """
     correct_department = department in DEPARTMENTS_AND_BINS
     processor_authorized = processor in AUTHORIZED_PROCESSORS
-    correct_date = timestamp >= START_DATE and timestamp <= END_DATE
+    ts_date = timestamp.date()
+    correct_date = START_DATE <= ts_date <= END_DATE
     is_weekday = timestamp.isoweekday() not in [6, 7]
-    if processor == "Nora.K" and timestamp > NORA_END_DATE:
+    if processor == "Nora.K" and ts_date > NORA_END_DATE:
         processor_authorized = False
 
     return all([correct_department, processor_authorized, correct_date, is_weekday])
@@ -97,9 +99,10 @@ def read_and_process_csv(file, raw_data, stats):
             if not has_to_replace:
                 stats["replaced_sessions"] += 1
                 return
+            stats["valid_entries"] -= raw_data[session_id]["valid_entries"]
             stats["replaced_sessions"] += 1
 
-        raw_data[session_id] = {"timestamp": timestamp, "value": 0}
+        raw_data[session_id] = {"timestamp": timestamp, "value": 0, "valid_entries": 0}
 
         for entry in csv_reader:
             bin_code = entry.get("bin")
@@ -115,6 +118,7 @@ def read_and_process_csv(file, raw_data, stats):
                 stats["invalid_entries"] += 1
                 continue
             stats["valid_entries"] += 1
+            raw_data[session_id]["valid_entries"] += 1
             raw_data[session_id]["value"] += value
 
 
@@ -140,15 +144,17 @@ def read_and_process_txt(file, raw_data, stats):
             if not has_to_replace:
                 stats["replaced_sessions"] += 1
                 return
+            stats["valid_entries"] -= raw_data[session_id]["valid_entries"]
             stats["replaced_sessions"] += 1
 
-        raw_data[session_id] = {"timestamp": timestamp, "value": 0}
+        raw_data[session_id] = {"timestamp": timestamp, "value": 0, "valid_entries": 0}
 
         entries = split_info[5:]
 
         for entry in entries:
             split_entry = entry.split("|")
             if len(split_entry) < 4:
+                stats["invalid_entries"] += 1
                 continue
             bin_code = split_entry[1].split(":")[-1].strip()
             try:
@@ -163,6 +169,7 @@ def read_and_process_txt(file, raw_data, stats):
                 stats["invalid_entries"] += 1
                 continue
             stats["valid_entries"] += 1
+            raw_data[session_id]["valid_entries"] += 1
             raw_data[session_id]["value"] += value
 
 
@@ -192,9 +199,10 @@ def read_and_process_mdr(file, raw_data, stats):
                 if not has_to_replace:
                     stats["replaced_sessions"] += 1
                     return
+                stats["valid_entries"] -= raw_data[session_id]["valid_entries"]
                 stats["replaced_sessions"] += 1
 
-            raw_data[session_id] = {"timestamp": timestamp, "value": 0}
+            raw_data[session_id] = {"timestamp": timestamp, "value": 0, "valid_entries": 0}
 
             entries = content.get("entries", [])
 
@@ -212,10 +220,11 @@ def read_and_process_mdr(file, raw_data, stats):
                     stats["invalid_entries"] += 1
                     continue
                 stats["valid_entries"] += 1
+                raw_data[session_id]["valid_entries"] += 1
                 raw_data[session_id]["value"] += value
 
 
-def process_data_refinement():
+def process_data_refinement(sessions_dir):
     """
     Divide data by file extension and calls the appropriate function for each
     """
@@ -228,7 +237,7 @@ def process_data_refinement():
         "invalid_entries": 0,
         "replaced_sessions": 0,
     }
-    for root, _, files in Path("./sessions").walk():
+    for root, _, files in sessions_dir.walk():
         for file in files:
             file_path = f"{root}/{file}"
             if file.endswith(".mdr"):
@@ -248,7 +257,15 @@ def sum_data_refinement(data):
 
 
 if __name__ == "__main__":
-    refined_data, stats = process_data_refinement()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "sessions_dir",
+        nargs="?",
+        type=Path,
+        default=Path(__file__).parent / "sessions",
+    )
+    args = parser.parse_args()
+    refined_data, stats = process_data_refinement(args.sessions_dir)
     sum_value = sum_data_refinement(refined_data)
     print(f"Final sum: {sum_value}")
     print("\n====================")
